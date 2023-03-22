@@ -1,0 +1,476 @@
+---
+title: "Week 7"
+title-block-banner: true
+title-block-style: default
+execute:
+  freeze: true
+  cache: true
+format: html
+# format: pdf
+---
+
+
+```{r}
+#| echo: false
+#| message: false
+#| output: false
+#| vscode: {languageId: r}
+dir <- "~/work/courses/stat380/weeks/week-7/"
+setwd(dir)
+```
+
+
+## Agenda:
+
+1. Automatic differentiation
+1. Cross validation
+1. Classification
+
+#### Packages we will require this week
+
+```{r}
+#| message: false
+#| results: hide
+#| output: false
+#| vscode: {languageId: r}
+packages <- c(
+    # Old packages
+    "ISLR2",
+    "dplyr",
+    "tidyr",
+    "readr",
+    "purrr",
+    "glmnet",
+    "caret",
+    "repr",
+    # NEW
+    "torch",
+    "mlbench"
+)
+
+# renv::install(packages)
+sapply(packages, require, character.only=TRUE)
+```
+
+
+<br><br><br><br>
+
+---
+
+# Thu, Feb 23
+
+
+In the last class we looked at the following **numerical** implementation of gradient descent in R
+
+```{r}
+#| vscode: {languageId: r}
+x <- cars$speed
+y <- cars$dist
+```
+
+```{r}
+#| vscode: {languageId: r}
+# define the loss function
+
+Loss <- function(b, x, y){
+    squares <- (y - b[1] - b[2] * x)^2
+    return( mean(squares) )
+}
+
+b <- rnorm(2)
+Loss(b, cars$speed, cars$dist)
+```
+
+This is the **numerical** gradient function we looked at:
+
+```{r}
+#| vscode: {languageId: r}
+# define a function to compute the gradients
+
+grad <- function(b, Loss, x, y, eps=1e-5){
+    b0_up <- Loss( c(b[1] + eps, b[2]), x, y)
+    b0_dn <- Loss( c(b[1] - eps, b[2]), x, y)
+    
+    b1_up <- Loss( c(b[1], b[2] + eps), x, y)
+    b1_dn <- Loss( c(b[1], b[2] - eps), x, y)
+    
+    grad_b0_L <- (b0_up - b0_dn) / (2 * eps)
+    grad_b1_L <- (b1_up - b1_dn) / (2 * eps)
+    
+    return( c(grad_b0_L, grad_b1_L) )
+}
+
+grad(b, Loss, cars$speed, cars$dist)
+```
+
+The gradient descent implementation is below:
+
+```{r}
+#| vscode: {languageId: r}
+steps <- 9999
+L_numeric <- rep(Inf, steps)
+eta <- 1e-4
+b_numeric <- rep(0.0, 2)
+
+for (i in 1:steps){
+    b_numeric <- b_numeric - eta * grad(b_numeric, Loss, cars$speed, cars$dist)
+    L_numeric[i] <- Loss(b_numeric, cars$speed, cars$dist)
+    if(i %in% c(1:10) || i %% 1000 == 0){
+        cat(sprintf("Iteration: %s\t Loss value: %s\n", i, L_numeric[i]))
+    }
+}
+```
+
+```{r}
+#| vscode: {languageId: r}
+options(repr.plot.width=12, repr.plot.height=7)
+
+par(mfrow=c(1, 2))
+
+plot(x, y)
+abline(b_numeric, col="red")
+
+plot(L_numeric, type="l", col="dodgerblue")
+```
+
+---
+
+<br><br><br>
+
+## Automatic differentiation
+
+The cornerstone of modern machine learning and data-science is to be able to perform **automatic differentiation**, i.e., being able to compute the gradients for **any** function without the need to solve tedious calculus problems. For the more advanced parts of the course (e.g., neural networks), we will be using automatic differentiation libraries to perform gradient descent. 
+
+While there are several libraries for performing these tasks, we will be using the `pyTorch` library for this. The installation procedure can be found [here](https://cran.r-project.org/web/packages/torch/vignettes/installation.html)
+
+The basic steps are:
+```R
+renv::install("torch")
+library(torch)
+torch::install_torch()
+```
+
+---
+
+### Example 1:
+
+```{r}
+#| vscode: {languageId: r}
+x <- torch_randn(c(5, 1), requires_grad=TRUE)
+x
+```
+
+```{r}
+#| vscode: {languageId: r}
+f <- function(x){
+    torch_norm(x)^10
+}
+
+y <- f(x)
+y
+y$backward()
+```
+
+$$
+\frac{dy}{dx}
+$$
+
+```{r}
+#| vscode: {languageId: r}
+x$grad
+```
+
+```{r}
+#| vscode: {languageId: r}
+(5 * torch_norm(x)^8) * (2 * x)
+```
+
+---
+
+### Example 2:
+
+```{r}
+#| vscode: {languageId: r}
+x <- torch_randn(c(10, 1), requires_grad=T)
+y <- torch_randn(c(10, 1), requires_grad=T)
+
+c(x, y)
+```
+
+```{r}
+#| vscode: {languageId: r}
+f <- function(x, y){
+    sum(x * y)
+}
+
+z <- f(x, y)
+z
+z$backward()
+```
+
+```{r}
+#| vscode: {languageId: r}
+c(x$grad, y$grad)
+```
+
+```{r}
+#| vscode: {languageId: r}
+c(x - y$grad, y - x$grad)
+```
+
+---
+
+### Example 3:
+
+```{r}
+#| vscode: {languageId: r}
+x <- torch_tensor(cars$speed, dtype = torch_float())
+y <- torch_tensor(cars$dist, dtype = torch_float())
+
+plot(x, y)
+```
+
+```{r}
+#| vscode: {languageId: r}
+b <- torch_zeros(c(2,1), dtype=torch_float(), requires_grad = TRUE)
+b
+```
+
+```{r}
+#| vscode: {languageId: r}
+loss <- nn_mse_loss()
+```
+
+```{r}
+#| vscode: {languageId: r}
+b <- torch_zeros(c(2,1), dtype=torch_float(), requires_grad = TRUE) # Initializing variables
+steps <- 10000 # Specifying the number of optimization steps
+L <- rep(Inf, steps) # Keeping track of the loss
+
+
+eta <- 0.5 # Specifying the learning rate and the optimizer
+optimizer <- optim_adam(b, lr=eta)
+
+
+# Gradient descent optimization over here
+for (i in 1:steps){
+    y_hat <- x * b[2] + b[1]
+    l <- loss(y_hat, y)
+    
+    L[i] <- l$item()
+    optimizer$zero_grad()
+    l$backward()
+    optimizer$step()
+    
+    if(i %in% c(1:10) || i %% 200 == 0){
+        cat(sprintf("Iteration: %s\t Loss value: %s\n", i, L[i]))
+    }
+}
+```
+
+```{r}
+#| vscode: {languageId: r}
+options(repr.plot.width=12, repr.plot.height=7)
+
+par(mfrow=c(1, 2))
+
+plot(x, y)
+abline(as_array(b), col="red")
+
+plot(L, type="l", col="dodgerblue")
+```
+
+```{r}
+#| vscode: {languageId: r}
+plot(L_numeric[1:100], type="l", col="red")
+lines(L[1:100], col="blue")
+```
+
+## Cross validation
+
+```{r}
+#| vscode: {languageId: r}
+df <- Boston %>% drop_na()
+head(df)
+dim(df)
+```
+
+Split the data into training (80%) and testing sets (20%)
+
+```{r}
+#| vscode: {languageId: r}
+k <- 5
+fold <- sample(1:nrow(df), nrow(df)/2)
+fold
+```
+
+```{r}
+#| vscode: {languageId: r}
+train <- df %>% slice(-fold)
+test  <- df %>% slice(fold)
+```
+
+```{r}
+#| vscode: {languageId: r}
+nrow(test) + nrow(train) - nrow(df)
+```
+
+```{r}
+#| vscode: {languageId: r}
+model <- lm(medv ~ ., data = train)
+summary(model)
+```
+
+```{r}
+#| vscode: {languageId: r}
+y_test <- predict(model, newdata = test)
+```
+
+```{r}
+#| vscode: {languageId: r}
+mspe <- mean((test$medv - y_test)^2)
+mspe
+```
+
+## k-Fold Cross Validation
+
+```{r}
+#| vscode: {languageId: r}
+k <- 5
+folds <- sample(1:k, nrow(df), replace=T)
+folds
+
+
+df_folds <- list()
+
+
+
+for(i in 1:k){
+    
+    df_folds[[i]] <- list()
+    
+    df_folds[[i]]$train = df[which(folds != i), ]
+    
+    df_folds[[i]]$test = df[which(folds == i), ]
+}
+```
+
+```{r}
+#| vscode: {languageId: r}
+nrow(df_folds[[2]]$train) + nrow(df_folds[[2]]$test) - nrow(df)
+```
+
+```{r}
+#| vscode: {languageId: r}
+nrow(df_folds[[3]]$train) + nrow(df_folds[[4]]$test) - nrow(df)
+```
+
+```{r}
+#| vscode: {languageId: r}
+kfold_mspe <- c()
+for(i in 1:k){
+    model <- lm(medv ~ ., df_folds[[i]]$train)
+    y_hat <- predict(model, df_folds[[i]]$test)
+    kfold_mspe[i] <- mean((y_hat - df_folds[[i]]$test$medv)^2)
+}
+kfold_mspe
+```
+
+```{r}
+#| vscode: {languageId: r}
+# mean(kfold_mspe)
+```
+
+## Wrapped in a function
+
+```{r}
+#| vscode: {languageId: r}
+make_folds <- function(df, k){
+    
+    folds <- sample(1:k, nrow(df), replace=T)
+
+    df_folds <- list()
+
+    for(i in 1:k){
+        
+        df_folds[[i]] <- list()
+        
+        df_folds[[i]]$train = df[which(folds != i), ]
+        
+        df_folds[[i]]$test = df[which(folds == i), ]
+    }
+    
+    return(df_folds)
+}
+```
+
+```{r}
+#| vscode: {languageId: r}
+cv_mspe <- function(formula, df_folds){
+    
+    kfold_mspe <- c()
+    
+    for(i in 1:length(df_folds)){
+        
+        model <- lm(formula, df_folds[[i]]$train)
+        
+        y_hat <- predict(model, df_folds[[i]]$test)
+        
+        kfold_mspe[i] <- mean((y_hat - df_folds[[i]]$test$medv)^2)
+    }
+    
+    return(mean(kfold_mspe))
+}
+```
+
+```{r}
+#| vscode: {languageId: r}
+cv_mspe(medv ~ ., df_folds)
+cv_mspe(medv ~ 1, df_folds)
+```
+
+### Using the`caret`  package
+
+Define the training control for cross validation
+
+```{r}
+#| vscode: {languageId: r}
+ctrl <- trainControl(method = "cv", number = 5)
+```
+
+```{r}
+#| vscode: {languageId: r}
+model <- train(medv ~ ., data = df, method = "lm", trControl = ctrl)
+summary(model)
+```
+
+```{r}
+#| vscode: {languageId: r}
+predictions <- predict(model, df)
+```
+
+### `caret` for LASSO
+
+#### Bias-variance tradeoff
+
+```{r}
+#| vscode: {languageId: r}
+ctrl <- trainControl(method = "cv", number = 5)
+
+# Define the tuning grid
+grid <- expand.grid(alpha = 1, lambda = seq(0, 0.1, by = 0.001))
+
+# Train the model using Lasso regression with cross-validation
+lasso_fit <- train(
+    medv ~ ., 
+    data = df, 
+    method = "glmnet", 
+    trControl = ctrl, 
+    tuneGrid = grid, 
+    standardize = TRUE, 
+    family = "gaussian"
+)
+
+plot(lasso_fit)
+```
+

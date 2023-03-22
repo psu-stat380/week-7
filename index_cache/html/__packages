@@ -1,0 +1,32 @@
+renv
+ISLR2
+dplyr
+tidyr
+readr
+<<<<<<< HEAD
+stringr
+kableExtra
+cowplot
+htmlwidgets
+broom
+scatterplot3d
+plotly
+lubridate
+Matrix
+glmnet
+lattice
+caret
+carData
+car
+corrplot
+=======
+purrr
+Matrix
+glmnet
+ggplot2
+lattice
+caret
+repr
+torch
+mlbench
+>>>>>>> 5aee636 (fasttrack)
